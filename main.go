@@ -5,6 +5,7 @@ import (
 
 	"gitlab.ceriath.net/libs/goBlue/archium"
 	"gitlab.ceriath.net/libs/goBlue/log"
+	"gitlab.ceriath.net/libs/goBlue/network"
 	"gitlab.ceriath.net/libs/goBlue/settings"
 	"gitlab.ceriath.net/libs/goBlue/util"
 	"gitlab.ceriath.net/libs/goPurple/gql"
@@ -123,99 +124,23 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 
 		if strings.HasPrefix(ircMessage.Msg, "!markersbot add") || strings.HasPrefix(ircMessage.Msg, "!markerbot add") {
 			if isBroadcaster(ircMessage.Tags["user-id"], ircMessage.Channel) || isGlobalAdmin(ircMessage.Tags["user-id"]) {
-				split := strings.Split(ircMessage.Msg, " ")
-				if len(split) < 3 {
-					ircConn.Send("Please provide a username.", ircMessage.Channel)
-					return
-				}
-				username := strings.Split(ircMessage.Msg, " ")[2]
-
-				users, jsoerr, err := kraken.GetUserByName(username)
-				if jsoerr != nil {
-					log.E(jsoerr.String())
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				if err != nil {
-					log.E(err)
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				if len(users.Users) < 1 {
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				config.ChannelSettings[ircMessage.Channel].AuthorizedUsers = append(config.ChannelSettings[ircMessage.Channel].AuthorizedUsers, users.Users[0].ID.String())
-				settings.WriteJsonConfig(SETTINGSPATH, &config)
-				ircConn.Send("User "+users.Users[0].Name+" successfully added.", ircMessage.Channel)
+				handleAddUser(ircMessage.Msg, ircMessage.Channel)
 				return
 			}
 		}
 
 		if strings.HasPrefix(ircMessage.Msg, "!markersbot remove") || strings.HasPrefix(ircMessage.Msg, "!markerbot remove") {
 			if isBroadcaster(ircMessage.Tags["user-id"], ircMessage.Channel) || isGlobalAdmin(ircMessage.Tags["user-id"]) {
-				split := strings.Split(ircMessage.Msg, " ")
-				if len(split) < 3 {
-					ircConn.Send("Please provide a username.", ircMessage.Channel)
-					return
-				}
-				username := strings.Split(ircMessage.Msg, " ")[2]
-
-				users, jsoerr, err := kraken.GetUserByName(username)
-				if jsoerr != nil {
-					log.E(jsoerr.String())
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				if err != nil {
-					log.E(err)
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				if len(users.Users) < 1 {
-					ircConn.Send("An error occured. Does this user exist?", ircMessage.Channel)
-					return
-				}
-
-				config.ChannelSettings[ircMessage.Channel].AuthorizedUsers = util.RemoveFromStringSlice(config.ChannelSettings[ircMessage.Channel].AuthorizedUsers, users.Users[0].ID.String())
-				settings.WriteJsonConfig(SETTINGSPATH, &config)
-				ircConn.Send("User "+users.Users[0].Name+" successfully removed.", ircMessage.Channel)
+				handleRemoveUser(ircMessage.Msg, ircMessage.Channel)
 				return
 			}
 		}
 	}
 
 	if strings.HasPrefix(ircMessage.Msg, "!marker") && !strings.HasPrefix(ircMessage.Msg, "!markersbot") && !strings.HasPrefix(ircMessage.Msg, "!markerbot") {
-
 		if (ircMessage.Tags["mod"] == "1" && config.ChannelSettings[ircMessage.Channel].EnableAllMods) || isAuthorized(ircMessage.Tags["user-id"], ircMessage.Channel) {
-
-			description := strings.TrimPrefix(ircMessage.Msg, "!marker")
-			currentBroadcastId := getBroadcastId(ircMessage.Channel)
-
-			if len(currentBroadcastId) < 1 {
-				ircConn.Send("@"+ircMessage.Tags["display-name"]+" an error occured for this marker. Is this channel live?", ircMessage.Channel)
-				return
-			}
-
-			response, err := gqlClient.CreateVideoBookmarkInput(description+" by "+ircMessage.Tags["display-name"], currentBroadcastId)
-			if err != nil {
-				ircConn.Send("@"+ircMessage.Tags["display-name"]+" an error occured for this marker.", ircMessage.Channel)
-				log.E(err)
-				return
-			}
-
-			if response.Data.CreateVideoBookmark.Error != nil {
-				log.E(response.Data.CreateVideoBookmark.Error)
-				ircConn.Send("@"+ircMessage.Tags["display-name"]+" an error occured for this marker.", ircMessage.Channel)
-				return
-			}
-			ircConn.Send("@"+ircMessage.Tags["display-name"]+" the marker "+description+" has been added.", ircMessage.Channel)
-
+			handleMarker(ircMessage.Msg, ircMessage.Tags["display-name"], ircMessage.Channel)
+			return
 		}
 	}
 
@@ -232,72 +157,37 @@ type ConfigListener struct {
 
 func (col *ConfigListener) Trigger(ae archium.ArchiumEvent) {
 	ircMessage := ae.Data[irc.ArchiumDataIdentifier].(*irc.IrcMessage)
+	isAdmin := isGlobalAdmin(ircMessage.Tags["user-id"])
 
 	if strings.HasPrefix(ircMessage.Msg, "!join") {
-
-		toJoin := ""
-		id := ""
-		isAdmin := isGlobalAdmin(ircMessage.Tags["user-id"])
 
 		if len(ircMessage.Msg) > len("!join ") && !isAdmin {
 			split := strings.Split(ircMessage.Msg, " ")
 			ircConn.Send("You are not allowed to add "+BOTNAME+" to channel "+split[1]+". You can only add it to your own channel by typing !join", ircMessage.Channel)
 			return
 		} else if len(ircMessage.Msg) > len("!join ") && isAdmin {
-			users, jsoerr, err := kraken.GetUserByName(strings.Split(ircMessage.Msg, " ")[1])
-			if err != nil {
-				log.E(err)
-				ircConn.Send("An error occured.", ircMessage.Channel)
-				return
-			}
-
-			if jsoerr != nil {
-				log.E(jsoerr.String())
-				ircConn.Send("An error occured.", ircMessage.Channel)
-				return
-			}
-
-			if len(users.Users) < 1 {
-				ircConn.Send("An error occured. Does the user exist?", ircMessage.Channel)
-				return
-			}
-
-			toJoin = users.Users[0].Name
-			id = users.Users[0].ID.String()
-
+			handleJoin("", strings.Split(ircMessage.Msg, " ")[1], ircMessage.Channel)
+			return
 		} else {
-			channel, jsoerr, err := kraken.GetChannel(ircMessage.Tags["user-id"])
-			if err != nil {
-				log.E(err)
-				ircConn.Send("An error occured.", ircMessage.Channel)
-				return
-			}
-
-			if jsoerr != nil {
-				log.E(jsoerr.String())
-				ircConn.Send("An error occured.", ircMessage.Channel)
-				return
-			}
-			toJoin = channel.Name
-			id = channel.ID.String()
-		}
-
-		toJoin = strings.ToLower(toJoin)
-		if _, ok := config.ChannelSettings[toJoin]; ok {
-			ircConn.Send("The bot is already active for this channel.", ircMessage.Channel)
+			handleJoin(ircMessage.Tags["user-id"], "", ircMessage.Channel)
 			return
 		}
-
-		ircConn.Join(toJoin)
-		config.ChannelSettings[toJoin] = &ChannelSettings{
-			Name:            toJoin,
-			EnableAllMods:   false,
-			AuthorizedUsers: make([]string, 0),
-			Id:              id,
-		}
-		settings.WriteJsonConfig(SETTINGSPATH, &config)
-		ircConn.Send(BOTNAME+" added to "+toJoin+".", ircMessage.Channel)
 	}
+
+	if strings.HasPrefix(ircMessage.Msg, "!leave") {
+		if len(ircMessage.Msg) > len("!leave ") && !isAdmin {
+			split := strings.Split(ircMessage.Msg, " ")
+			ircConn.Send("You are not allowed to remove "+BOTNAME+" from channel "+split[1]+". You can only remove it from your own channel by typing !leave", ircMessage.Channel)
+			return
+		} else if len(ircMessage.Msg) > len("!leave ") && isAdmin {
+			handleLeave("", strings.Split(ircMessage.Msg, " ")[1], ircMessage.Channel)
+			return
+		} else {
+			handleLeave(ircMessage.Tags["user-id"], "", ircMessage.Channel)
+			return
+		}
+	}
+
 }
 
 func (col *ConfigListener) GetTypes() []string {
@@ -350,4 +240,170 @@ func getBroadcastId(channelName string) string {
 
 	return stream.Stream.ID.String()
 
+}
+
+//handlers
+
+func handleJoin(channelId, username, sourceChannel string) {
+	var err error
+	var jsoerr *network.JsonError
+	var toJoin string
+	var id string
+
+	if username != "" {
+		var users *twitchapi.Users
+		users, jsoerr, err = kraken.GetUserByName(username)
+		if users != nil {
+			toJoin = users.Users[0].Name
+			id = users.Users[0].ID.String()
+		}
+	} else {
+		var channel *twitchapi.Channel
+		channel, jsoerr, err = kraken.GetChannel(channelId)
+		if channel != nil {
+			toJoin = channel.Name
+			id = channel.ID.String()
+		}
+	}
+	if err != nil {
+		log.E(err)
+		ircConn.Send("An error occured.", sourceChannel)
+		return
+	}
+
+	if jsoerr != nil {
+		log.E(jsoerr.String())
+		ircConn.Send("An error occured.", sourceChannel)
+		return
+	}
+
+	toJoin = strings.ToLower(toJoin)
+	if _, ok := config.ChannelSettings[toJoin]; ok {
+		ircConn.Send("The bot is already active for this channel.", sourceChannel)
+		return
+	}
+
+	ircConn.Join(toJoin)
+	config.ChannelSettings[toJoin] = &ChannelSettings{
+		Name:            toJoin,
+		EnableAllMods:   false,
+		AuthorizedUsers: make([]string, 0),
+		Id:              id,
+	}
+	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	ircConn.Send(BOTNAME+" added to "+toJoin+".", sourceChannel)
+}
+
+func handleLeave(channelId, username, sourceChannel string) {
+	var toLeave string
+	if username != "" {
+		toLeave = username
+	} else {
+		channel, jsoerr, err := kraken.GetChannel(channelId)
+		if err != nil {
+			log.E(err)
+			ircConn.Send("An error occured.", sourceChannel)
+			return
+		}
+
+		if jsoerr != nil {
+			log.E(jsoerr.String())
+			ircConn.Send("An error occured.", sourceChannel)
+			return
+		}
+		toLeave = channel.Name
+	}
+	delete(config.ChannelSettings, toLeave)
+	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	ircConn.Send("Goodbye.", toLeave)
+	ircConn.Leave(toLeave)
+	return
+}
+
+func handleAddUser(msg, sourceChannel string) {
+	split := strings.Split(msg, " ")
+	if len(split) < 3 {
+		ircConn.Send("Please provide a username.", sourceChannel)
+		return
+	}
+	username := strings.Split(msg, " ")[2]
+
+	users, jsoerr, err := kraken.GetUserByName(username)
+	if jsoerr != nil {
+		log.E(jsoerr.String())
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	if err != nil {
+		log.E(err)
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	if len(users.Users) < 1 {
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	config.ChannelSettings[sourceChannel].AuthorizedUsers = append(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
+	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	ircConn.Send("User "+users.Users[0].Name+" successfully added.", sourceChannel)
+	return
+}
+
+func handleRemoveUser(msg, sourceChannel string) {
+	split := strings.Split(msg, " ")
+	if len(split) < 3 {
+		ircConn.Send("Please provide a username.", sourceChannel)
+		return
+	}
+	username := strings.Split(msg, " ")[2]
+
+	users, jsoerr, err := kraken.GetUserByName(username)
+	if jsoerr != nil {
+		log.E(jsoerr.String())
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	if err != nil {
+		log.E(err)
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	if len(users.Users) < 1 {
+		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		return
+	}
+
+	config.ChannelSettings[sourceChannel].AuthorizedUsers = util.RemoveFromStringSlice(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
+	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	ircConn.Send("User "+users.Users[0].Name+" successfully removed.", sourceChannel)
+	return
+}
+
+func handleMarker(msg, username, sourceChannel string) {
+	description := strings.TrimPrefix(msg, "!marker")
+	currentBroadcastId := getBroadcastId(sourceChannel)
+
+	if len(currentBroadcastId) < 1 {
+		ircConn.Send("@"+username+" an error occured for this marker. Is this channel live?", sourceChannel)
+		return
+	}
+
+	response, err := gqlClient.CreateVideoBookmarkInput(description+" by "+username, currentBroadcastId)
+	if err != nil {
+		ircConn.Send("@"+username+" an error occured for this marker.", sourceChannel)
+		log.E(err)
+		return
+	}
+
+	if response.Data.CreateVideoBookmark.Error != nil {
+		log.E(response.Data.CreateVideoBookmark.Error)
+		ircConn.Send("@"+username+" an error occured for this marker.", sourceChannel)
+		return
+	}
+	ircConn.Send("@"+username+" the marker "+description+" has been added.", sourceChannel)
 }

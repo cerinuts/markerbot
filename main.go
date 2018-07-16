@@ -110,6 +110,10 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 
 		if strings.HasPrefix(ircMessage.Msg, "!markersbot mods enable") || strings.HasPrefix(ircMessage.Msg, "!markerbot mods enable") {
 			if isBroadcaster(ircMessage.Tags["user-id"], ircMessage.Channel) || isGlobalAdmin(ircMessage.Tags["user-id"]) {
+				if config.ChannelSettings[ircMessage.Channel].EnableAllMods {
+					ircConn.Send("The moderators of this channel are already authorized to create markers.", ircMessage.Channel)
+					return
+				}
 				config.ChannelSettings[ircMessage.Channel].EnableAllMods = true
 				settings.WriteJsonConfig(SETTINGSPATH, &config)
 				ircConn.Send("The moderators of this channel are now authorized to create markers.", ircMessage.Channel)
@@ -119,6 +123,10 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 
 		if strings.HasPrefix(ircMessage.Msg, "!markersbot mods disable") || strings.HasPrefix(ircMessage.Msg, "!markerbot mods disable") {
 			if isBroadcaster(ircMessage.Tags["user-id"], ircMessage.Channel) || isGlobalAdmin(ircMessage.Tags["user-id"]) {
+				if !config.ChannelSettings[ircMessage.Channel].EnableAllMods {
+					ircConn.Send("The moderators of this channel are already not authorized to create markers.", ircMessage.Channel)
+					return
+				}
 				config.ChannelSettings[ircMessage.Channel].EnableAllMods = false
 				settings.WriteJsonConfig(SETTINGSPATH, &config)
 				ircConn.Send("The moderators of this channel are not authorized to create markers anymore.", ircMessage.Channel)
@@ -329,6 +337,9 @@ func handleLeave(channelId, username, sourceChannel string) {
 	delete(config.ChannelSettings, toLeave)
 	settings.WriteJsonConfig(SETTINGSPATH, &config)
 	ircConn.Send("Goodbye.", toLeave)
+	if toLeave != sourceChannel {
+		ircConn.Send("Left "+toLeave, sourceChannel)
+	}
 	ircConn.Leave(toLeave)
 	return
 }
@@ -357,6 +368,13 @@ func handleAddUser(msg, sourceChannel string) {
 	if len(users.Users) < 1 {
 		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
 		return
+	}
+
+	for _, uId := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
+		if users.Users[0].ID.String() == uId {
+			ircConn.Send("User "+users.Users[0].Name+" is already authorized.", sourceChannel)
+			return
+		}
 	}
 
 	config.ChannelSettings[sourceChannel].AuthorizedUsers = append(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
@@ -391,9 +409,16 @@ func handleRemoveUser(msg, sourceChannel string) {
 		return
 	}
 
-	config.ChannelSettings[sourceChannel].AuthorizedUsers = util.RemoveFromStringSlice(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
-	settings.WriteJsonConfig(SETTINGSPATH, &config)
-	ircConn.Send("User "+users.Users[0].Name+" successfully removed.", sourceChannel)
+	for _, uId := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
+		if users.Users[0].ID.String() == uId {
+			config.ChannelSettings[sourceChannel].AuthorizedUsers = util.RemoveFromStringSlice(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
+			settings.WriteJsonConfig(SETTINGSPATH, &config)
+			ircConn.Send("User "+users.Users[0].Name+" successfully removed.", sourceChannel)
+			return
+		}
+	}
+
+	ircConn.Send("User "+users.Users[0].Name+" is already unauthorized.", sourceChannel)
 	return
 }
 

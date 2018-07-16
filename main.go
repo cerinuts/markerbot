@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 
 	"gitlab.ceriath.net/libs/goBlue/archium"
@@ -12,6 +13,9 @@ import (
 	"gitlab.ceriath.net/libs/goPurple/irc"
 	"gitlab.ceriath.net/libs/goPurple/twitchapi"
 )
+
+const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "1", "s"
+const FullVersion string = AppName + VersionMajor + "." + VersionMinor + VersionBuild
 
 type Settings struct {
 	Host            string                      `json:"host"`
@@ -188,6 +192,15 @@ func (col *ConfigListener) Trigger(ae archium.ArchiumEvent) {
 		}
 	}
 
+	if strings.HasPrefix(ircMessage.Msg, "!info") && isAdmin {
+		handleInfo(ircMessage.Channel)
+		return
+	}
+
+	if strings.HasPrefix(ircMessage.Msg, "!broadcast ") && isAdmin {
+		handleBroadcast(ircMessage.Msg, ircMessage.Channel)
+		return
+	}
 }
 
 func (col *ConfigListener) GetTypes() []string {
@@ -406,4 +419,17 @@ func handleMarker(msg, username, sourceChannel string) {
 		return
 	}
 	ircConn.Send("@"+username+" the marker "+description+" has been added.", sourceChannel)
+}
+
+func handleInfo(sourceChannel string) {
+	ircConn.Send(FullVersion+" - "+twitchapi.FullVersion+" - "+irc.FullVersion+" - "+archium.FullVersion+" - "+log.FullVersion+" - "+
+		util.FullVersion+" - "+network.FullVersion+" - "+settings.FullVersion, sourceChannel)
+}
+
+func handleBroadcast(msg, sourceChannel string) {
+	toSend := strings.SplitN(msg, " ", 2)[1]
+	for c, _ := range config.ChannelSettings {
+		ircConn.Send(toSend, c)
+	}
+	ircConn.Send("Sent "+strconv.Itoa(len(config.ChannelSettings))+" messages.", sourceChannel)
 }

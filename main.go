@@ -24,91 +24,93 @@ import (
 const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "2", "s"
 const FullVersion string = AppName + VersionMajor + "." + VersionMinor + VersionBuild
 
-type Settings struct {
+type botSettings struct {
 	Host            string                      `json:"host"`
 	Port            string                      `json:"port"`
 	Oauth           string                      `json:"oauth"`
-	ClientId        string                      `json:"clientId"`
+	ClientID        string                      `json:"clientId"`
 	Username        string                      `json:"username"`
 	Loglevel        int                         `json:"loglevel"`
-	ChannelSettings map[string]*ChannelSettings `json:"channelsettings"`
+	ChannelSettings map[string]*channelSettings `json:"channelSettings"`
 	GlobalAdmins    []string                    `json:"globaladmins"`
 }
 
-type ChannelSettings struct {
+type channelSettings struct {
 	Name            string   `json:"name"`
-	Id              string   `json:"id"`
+	ID              string   `json:"id"`
 	EnableAllMods   bool     `json:"enableAllMods"`
 	AuthorizedUsers []string `json:"authorizedUsers"`
 }
 
-const BOTNAME = "markersbot"
-const SETTINGSPATH = "./settings.json"
+const botname = "markersbot"
+const settingspath = "./settings.json"
 
-var config *Settings
-var ircConn *irc.IrcConnection
+var config *botSettings
+var ircConn *irc.Connection
 var kraken *twitchapi.TwitchKraken
-var gqlClient *gql.GQLClient
+var gqlClient *gql.Client
 
 func main() {
-	config = new(Settings)
-	settings.ReadJsonConfig(SETTINGSPATH, &config)
+	config = new(botSettings)
+	settings.ReadJSONConfig(settingspath, &config)
 	log.CurrentLevel = config.Loglevel
 	log.PrintToFile = true
 	log.Logfilename = "markerbot.log"
 
 	if config.ChannelSettings == nil {
-		config.ChannelSettings = make(map[string]*ChannelSettings)
-		settings.WriteJsonConfig(SETTINGSPATH, &config)
+		config.ChannelSettings = make(map[string]*channelSettings)
+		settings.WriteJSONConfig(settingspath, &config)
 	}
 
 	if config.GlobalAdmins == nil {
 		config.GlobalAdmins = make([]string, 0)
-		settings.WriteJsonConfig(SETTINGSPATH, &config)
+		settings.WriteJSONConfig(settingspath, &config)
 	}
 
 	kraken = &twitchapi.TwitchKraken{
-		ClientID: config.ClientId,
+		ClientID: config.ClientID,
 	}
 
-	gqlClient = &gql.GQLClient{
-		ClientId: config.ClientId,
+	gqlClient = &gql.Client{
+		ClientID: config.ClientID,
 		OAuth:    config.Oauth,
 	}
 
 	a := archium.ArchiumCore
 	cal := new(ChannelListener)
 	col := new(ConfigListener)
-	dl := new(archium.ArchiumDebugListener)
+	dl := new(archium.DebugListener)
 	a.Register(cal)
 	a.Register(col)
 	a.Register(dl)
 
-	ircConn = new(irc.IrcConnection)
+	ircConn = new(irc.Connection)
 	err := ircConn.Connect(config.Host, config.Port)
 	if err != nil {
 		log.P(err)
 	}
 	ircConn.Init("oauth:"+config.Oauth, config.Username)
 	ircConn.Join(config.Username)
-	for k, _ := range config.ChannelSettings {
+	for k := range config.ChannelSettings {
 		ircConn.Join(k)
 	}
 
 	ircConn.Wait()
 }
 
+//ChannelListener is the listener for userchannels
 type ChannelListener struct {
 }
 
-func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
-	ircMessage := ae.Data[irc.ArchiumDataIdentifier].(*irc.IrcMessage)
+//Trigger handles everything on a normal channel
+func (cal *ChannelListener) Trigger(ae archium.Event) {
+	ircMessage := ae.Data[irc.ArchiumDataIdentifier].(*irc.Message)
 
 	if strings.HasPrefix(ircMessage.Msg, "!markersbot") || strings.HasPrefix(ircMessage.Msg, "!markerbot") {
 		if strings.HasPrefix(ircMessage.Msg, "!markersbot leave") || strings.HasPrefix(ircMessage.Msg, "!markerbot leave") {
 			if isBroadcaster(ircMessage.Tags["user-id"], ircMessage.Channel) || isGlobalAdmin(ircMessage.Tags["user-id"]) {
 				delete(config.ChannelSettings, ircMessage.Channel)
-				settings.WriteJsonConfig(SETTINGSPATH, &config)
+				settings.WriteJSONConfig(settingspath, &config)
 				ircConn.Send("Goodbye.", ircMessage.Channel)
 				ircConn.Leave(ircMessage.Channel)
 				return
@@ -122,7 +124,7 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 					return
 				}
 				config.ChannelSettings[ircMessage.Channel].EnableAllMods = true
-				settings.WriteJsonConfig(SETTINGSPATH, &config)
+				settings.WriteJSONConfig(settingspath, &config)
 				ircConn.Send("The moderators of this channel are now authorized to create markers.", ircMessage.Channel)
 				return
 			}
@@ -135,7 +137,7 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 					return
 				}
 				config.ChannelSettings[ircMessage.Channel].EnableAllMods = false
-				settings.WriteJsonConfig(SETTINGSPATH, &config)
+				settings.WriteJSONConfig(settingspath, &config)
 				ircConn.Send("The moderators of this channel are not authorized to create markers anymore.", ircMessage.Channel)
 				return
 			}
@@ -165,24 +167,27 @@ func (cal *ChannelListener) Trigger(ae archium.ArchiumEvent) {
 
 }
 
+//GetTypes returns any twitch privmsg
 func (cal *ChannelListener) GetTypes() []string {
 	var list []string
 	list = append(list, irc.ArchiumPrefix+"*.privmsg")
 	return list
 }
 
+//ConfigListener listens on the bot's own channel
 type ConfigListener struct {
 }
 
-func (col *ConfigListener) Trigger(ae archium.ArchiumEvent) {
-	ircMessage := ae.Data[irc.ArchiumDataIdentifier].(*irc.IrcMessage)
+//Trigger handles the messages on the bots own channel
+func (col *ConfigListener) Trigger(ae archium.Event) {
+	ircMessage := ae.Data[irc.ArchiumDataIdentifier].(*irc.Message)
 	isAdmin := isGlobalAdmin(ircMessage.Tags["user-id"])
 
 	if strings.HasPrefix(ircMessage.Msg, "!join") {
 
 		if len(ircMessage.Msg) > len("!join ") && !isAdmin {
 			split := strings.Split(ircMessage.Msg, " ")
-			ircConn.Send("You are not allowed to add "+BOTNAME+" to channel "+split[1]+". You can only add it to your own channel by typing !join", ircMessage.Channel)
+			ircConn.Send("You are not allowed to add "+botname+" to channel "+split[1]+". You can only add it to your own channel by typing !join", ircMessage.Channel)
 			return
 		} else if len(ircMessage.Msg) > len("!join ") && isAdmin {
 			handleJoin("", strings.Split(ircMessage.Msg, " ")[1], ircMessage.Channel)
@@ -196,7 +201,7 @@ func (col *ConfigListener) Trigger(ae archium.ArchiumEvent) {
 	if strings.HasPrefix(ircMessage.Msg, "!leave") {
 		if len(ircMessage.Msg) > len("!leave ") && !isAdmin {
 			split := strings.Split(ircMessage.Msg, " ")
-			ircConn.Send("You are not allowed to remove "+BOTNAME+" from channel "+split[1]+". You can only remove it from your own channel by typing !leave", ircMessage.Channel)
+			ircConn.Send("You are not allowed to remove "+botname+" from channel "+split[1]+". You can only remove it from your own channel by typing !leave", ircMessage.Channel)
 			return
 		} else if len(ircMessage.Msg) > len("!leave ") && isAdmin {
 			handleLeave("", strings.Split(ircMessage.Msg, " ")[1], ircMessage.Channel)
@@ -218,28 +223,29 @@ func (col *ConfigListener) Trigger(ae archium.ArchiumEvent) {
 	}
 }
 
+//GetTypes returns all privmsgs on the bots channel
 func (col *ConfigListener) GetTypes() []string {
 	var list []string
-	list = append(list, irc.ArchiumPrefix+strings.ToLower(BOTNAME)+".privmsg")
+	list = append(list, irc.ArchiumPrefix+strings.ToLower(botname)+".privmsg")
 	return list
 }
 
-func isGlobalAdmin(userid string) bool {
+func isGlobalAdmin(userID string) bool {
 	for _, admin := range config.GlobalAdmins {
-		if admin == userid {
+		if admin == userID {
 			return true
 		}
 	}
 	return false
 }
 
-func isAuthorized(userId, channel string) bool {
-	if isGlobalAdmin(userId) || isBroadcaster(userId, channel) {
+func isAuthorized(userID, channel string) bool {
+	if isGlobalAdmin(userID) || isBroadcaster(userID, channel) {
 		return true
 	}
 
 	for _, user := range config.ChannelSettings[channel].AuthorizedUsers {
-		if user == userId {
+		if user == userID {
 			return true
 		}
 	}
@@ -247,15 +253,12 @@ func isAuthorized(userId, channel string) bool {
 
 }
 
-func isBroadcaster(userId, channel string) bool {
-	if userId == config.ChannelSettings[channel].Id {
-		return true
-	}
-	return false
+func isBroadcaster(userID, channel string) bool {
+	return userID == config.ChannelSettings[channel].ID
 }
 
-func getBroadcastId(channelName string) string {
-	stream, jsoerr, err := kraken.GetStream(config.ChannelSettings[channelName].Id, "")
+func getBroadcastID(channelName string) string {
+	stream, jsoerr, err := kraken.GetStream(config.ChannelSettings[channelName].ID, "")
 	if err != nil {
 		log.E(err)
 		return ""
@@ -272,7 +275,7 @@ func getBroadcastId(channelName string) string {
 
 //handlers
 
-func handleJoin(channelId, username, sourceChannel string) {
+func handleJoin(channelID, username, sourceChannel string) {
 	var err error
 	var jsoerr *network.JSONError
 	var toJoin string
@@ -287,7 +290,7 @@ func handleJoin(channelId, username, sourceChannel string) {
 		}
 	} else {
 		var channel *twitchapi.Channel
-		channel, jsoerr, err = kraken.GetChannel(channelId)
+		channel, jsoerr, err = kraken.GetChannel(channelID)
 		if channel != nil {
 			toJoin = channel.Name
 			id = channel.ID.String()
@@ -312,22 +315,22 @@ func handleJoin(channelId, username, sourceChannel string) {
 	}
 
 	ircConn.Join(toJoin)
-	config.ChannelSettings[toJoin] = &ChannelSettings{
+	config.ChannelSettings[toJoin] = &channelSettings{
 		Name:            toJoin,
 		EnableAllMods:   false,
 		AuthorizedUsers: make([]string, 0),
-		Id:              id,
+		ID:              id,
 	}
-	settings.WriteJsonConfig(SETTINGSPATH, &config)
-	ircConn.Send(BOTNAME+" added to "+toJoin+".", sourceChannel)
+	settings.WriteJSONConfig(settingspath, &config)
+	ircConn.Send(botname+" added to "+toJoin+".", sourceChannel)
 }
 
-func handleLeave(channelId, username, sourceChannel string) {
+func handleLeave(channelID, username, sourceChannel string) {
 	var toLeave string
 	if username != "" {
 		toLeave = username
 	} else {
-		channel, jsoerr, err := kraken.GetChannel(channelId)
+		channel, jsoerr, err := kraken.GetChannel(channelID)
 		if err != nil {
 			log.E(err)
 			ircConn.Send("An error occured.", sourceChannel)
@@ -342,13 +345,12 @@ func handleLeave(channelId, username, sourceChannel string) {
 		toLeave = channel.Name
 	}
 	delete(config.ChannelSettings, toLeave)
-	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	settings.WriteJSONConfig(settingspath, &config)
 	ircConn.Send("Goodbye.", toLeave)
 	if toLeave != sourceChannel {
 		ircConn.Send("Left "+toLeave, sourceChannel)
 	}
 	ircConn.Leave(toLeave)
-	return
 }
 
 func handleAddUser(msg, sourceChannel string) {
@@ -377,17 +379,16 @@ func handleAddUser(msg, sourceChannel string) {
 		return
 	}
 
-	for _, uId := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
-		if users.Users[0].ID.String() == uId {
+	for _, uID := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
+		if users.Users[0].ID.String() == uID {
 			ircConn.Send("User "+users.Users[0].Name+" is already authorized.", sourceChannel)
 			return
 		}
 	}
 
 	config.ChannelSettings[sourceChannel].AuthorizedUsers = append(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
-	settings.WriteJsonConfig(SETTINGSPATH, &config)
+	settings.WriteJSONConfig(settingspath, &config)
 	ircConn.Send("User "+users.Users[0].Name+" successfully added.", sourceChannel)
-	return
 }
 
 func handleRemoveUser(msg, sourceChannel string) {
@@ -416,29 +417,28 @@ func handleRemoveUser(msg, sourceChannel string) {
 		return
 	}
 
-	for _, uId := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
-		if users.Users[0].ID.String() == uId {
+	for _, uID := range config.ChannelSettings[sourceChannel].AuthorizedUsers {
+		if users.Users[0].ID.String() == uID {
 			config.ChannelSettings[sourceChannel].AuthorizedUsers = util.RemoveFromStringSlice(config.ChannelSettings[sourceChannel].AuthorizedUsers, users.Users[0].ID.String())
-			settings.WriteJsonConfig(SETTINGSPATH, &config)
+			settings.WriteJSONConfig(settingspath, &config)
 			ircConn.Send("User "+users.Users[0].Name+" successfully removed.", sourceChannel)
 			return
 		}
 	}
 
 	ircConn.Send("User "+users.Users[0].Name+" is already unauthorized.", sourceChannel)
-	return
 }
 
 func handleMarker(msg, username, sourceChannel string) {
 	description := strings.TrimPrefix(msg, "!marker")
-	currentBroadcastId := getBroadcastId(sourceChannel)
+	currentBroadcastID := getBroadcastID(sourceChannel)
 
-	if len(currentBroadcastId) < 1 {
+	if len(currentBroadcastID) < 1 {
 		ircConn.Send("@"+username+" an error occured for this marker. Is this channel live?", sourceChannel)
 		return
 	}
 
-	response, err := gqlClient.CreateVideoBookmarkInput(description+" by "+username, currentBroadcastId)
+	response, err := gqlClient.CreateVideoBookmarkInput(description+" by "+username, currentBroadcastID)
 	if err != nil {
 		ircConn.Send("@"+username+" an error occured for this marker.", sourceChannel)
 		log.E(err)
@@ -460,7 +460,7 @@ func handleInfo(sourceChannel string) {
 
 func handleBroadcast(msg, sourceChannel string) {
 	toSend := strings.SplitN(msg, " ", 2)[1]
-	for c, _ := range config.ChannelSettings {
+	for c := range config.ChannelSettings {
 		ircConn.Send(toSend, c)
 	}
 	ircConn.Send("Sent "+strconv.Itoa(len(config.ChannelSettings))+" messages.", sourceChannel)

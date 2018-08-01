@@ -4,14 +4,14 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.ceriath.net/libs/goBlue/archium"
-	"gitlab.ceriath.net/libs/goBlue/log"
-	"gitlab.ceriath.net/libs/goBlue/network"
-	"gitlab.ceriath.net/libs/goBlue/settings"
-	"gitlab.ceriath.net/libs/goBlue/util"
-	"gitlab.ceriath.net/libs/goPurple/gql"
-	"gitlab.ceriath.net/libs/goPurple/irc"
-	"gitlab.ceriath.net/libs/goPurple/twitchapi"
+	"code.cerinuts.io/libs/goBlue/archium"
+	"code.cerinuts.io/libs/goBlue/log"
+	"code.cerinuts.io/libs/goBlue/network"
+	"code.cerinuts.io/libs/goBlue/settings"
+	"code.cerinuts.io/libs/goBlue/util"
+	"code.cerinuts.io/libs/goPurple/gql"
+	"code.cerinuts.io/libs/goPurple/irc"
+	"code.cerinuts.io/libs/goPurple/twitchapi"
 )
 
 const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "1", "s"
@@ -267,7 +267,7 @@ func getBroadcastId(channelName string) string {
 
 func handleJoin(channelId, username, sourceChannel string) {
 	var err error
-	var jsoerr *network.JsonError
+	var jsoerr *network.JSONError
 	var toJoin string
 	var id string
 

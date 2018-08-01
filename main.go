@@ -4,7 +4,7 @@ This Package is part of the "markerbot"
 It is licensed under the MIT License
 */
 
-//Package main contains the markerbot for twitch. 
+//Package main contains the markerbot for twitch.
 package main
 
 import (
@@ -21,7 +21,7 @@ import (
 	"code.cerinuts.io/libs/goPurple/twitchapi"
 )
 
-const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "1", "s"
+const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "2", "s"
 const FullVersion string = AppName + VersionMajor + "." + VersionMinor + VersionBuild
 
 type Settings struct {

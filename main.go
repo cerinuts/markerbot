@@ -1,3 +1,10 @@
+/*
+Copyright (c) 2018 ceriath
+This Package is part of the "markerbot"
+It is licensed under the MIT License
+*/
+
+//Package main contains the markerbot for twitch. 
 package main
 
 import (

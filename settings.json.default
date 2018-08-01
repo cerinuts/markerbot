@@ -1,0 +1,10 @@
+{
+	"host": "irc.twitch.tv",
+	"port": "6667",
+	"oauth": "",
+	"clientId": "",
+	"username": "",
+	"loglevel": 3,
+	"channelsettings": {
+	}
+}

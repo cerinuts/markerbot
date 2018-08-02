@@ -21,7 +21,19 @@ import (
 	"code.cerinuts.io/libs/goPurple/twitchapi"
 )
 
-const AppName, VersionMajor, VersionMinor, VersionBuild string = "markerbot", "0", "2", "s"
+//AppName is the name of the application
+const AppName string = "markerbot"
+
+//VersionMajor 0 means in development, >1 ensures compatibility with each minor version, but breakes with new major version
+const VersionMajor string = "0"
+
+//VersionMinor introduces changes that require a new version number. If the major version is 0, they are likely to break compatibility
+const VersionMinor string = "2"
+
+//VersionBuild is the type of this release. s(table), b(eta), d(evelopment), n(ightly)
+const VersionBuild string = "s"
+
+//FullVersion contains the full name and version of this package in a printable string
 const FullVersion string = AppName + VersionMajor + "." + VersionMinor + VersionBuild
 
 type botSettings struct {
@@ -298,13 +310,13 @@ func handleJoin(channelID, username, sourceChannel string) {
 	}
 	if err != nil {
 		log.E(err)
-		ircConn.Send("An error occured.", sourceChannel)
+		ircConn.Send("An error occurred.", sourceChannel)
 		return
 	}
 
 	if jsoerr != nil {
 		log.E(jsoerr.String())
-		ircConn.Send("An error occured.", sourceChannel)
+		ircConn.Send("An error occurred.", sourceChannel)
 		return
 	}
 
@@ -333,13 +345,13 @@ func handleLeave(channelID, username, sourceChannel string) {
 		channel, jsoerr, err := kraken.GetChannel(channelID)
 		if err != nil {
 			log.E(err)
-			ircConn.Send("An error occured.", sourceChannel)
+			ircConn.Send("An error occurred.", sourceChannel)
 			return
 		}
 
 		if jsoerr != nil {
 			log.E(jsoerr.String())
-			ircConn.Send("An error occured.", sourceChannel)
+			ircConn.Send("An error occurred.", sourceChannel)
 			return
 		}
 		toLeave = channel.Name
@@ -364,18 +376,18 @@ func handleAddUser(msg, sourceChannel string) {
 	users, jsoerr, err := kraken.GetUserByName(username)
 	if jsoerr != nil {
 		log.E(jsoerr.String())
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
 	if err != nil {
 		log.E(err)
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
 	if len(users.Users) < 1 {
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
@@ -402,18 +414,18 @@ func handleRemoveUser(msg, sourceChannel string) {
 	users, jsoerr, err := kraken.GetUserByName(username)
 	if jsoerr != nil {
 		log.E(jsoerr.String())
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
 	if err != nil {
 		log.E(err)
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
 	if len(users.Users) < 1 {
-		ircConn.Send("An error occured. Does this user exist?", sourceChannel)
+		ircConn.Send("An error occurred. Does this user exist?", sourceChannel)
 		return
 	}
 
@@ -434,20 +446,20 @@ func handleMarker(msg, username, sourceChannel string) {
 	currentBroadcastID := getBroadcastID(sourceChannel)
 
 	if len(currentBroadcastID) < 1 {
-		ircConn.Send("@"+username+" an error occured for this marker. Is this channel live?", sourceChannel)
+		ircConn.Send("@"+username+" an error occurred for this marker. Is this channel live?", sourceChannel)
 		return
 	}
 
 	response, err := gqlClient.CreateVideoBookmarkInput(description+" by "+username, currentBroadcastID)
 	if err != nil {
-		ircConn.Send("@"+username+" an error occured for this marker.", sourceChannel)
+		ircConn.Send("@"+username+" an error occurred for this marker.", sourceChannel)
 		log.E(err)
 		return
 	}
 
 	if response.Data.CreateVideoBookmark.Error != nil {
 		log.E(response.Data.CreateVideoBookmark.Error)
-		ircConn.Send("@"+username+" an error occured for this marker.", sourceChannel)
+		ircConn.Send("@"+username+" an error occurred for this marker.", sourceChannel)
 		return
 	}
 	ircConn.Send("@"+username+" the marker "+description+" has been added.", sourceChannel)

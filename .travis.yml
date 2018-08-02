@@ -1,4 +1,4 @@
   language: go
   go:
     - "1.10"
-  go_import_path: code.cerinuts.io/libs/goPurple
+  go_import_path: code.cerinuts.io/twitch/markerbot
